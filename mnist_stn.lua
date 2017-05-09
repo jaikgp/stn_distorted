@@ -9,10 +9,13 @@ require 'image'
 require 'optim'
 require 'xlua'
 require 'cunn'
-
+require 'stn'
 -- getting distoreted dataset
 print('creating distorted dataset')
 trainDataset , testDataset = createDatasetsDistorted()
+
+stn_true = true
+
 
 function model()
 	-- deciding parameters
@@ -33,6 +36,10 @@ function model()
 
 	model = nn.Sequential()
 
+	if stn_true then
+		dofile('spatial_transformer.lua')
+		model:add(spanet)
+	end
 	model:add(nn.SpatialConvolution(depth,layerDepths[1],filterSize,filterSize,stride,stride))
 	model:add(nn.ReLU())
 	model:add(nn.SpatialConvolution(layerDepths[1],layerDepths[2],filterSize,filterSize,stride,stride))
@@ -45,6 +52,7 @@ function model()
 	model:add(nn.Linear(layerDepths[3]*8*8,noutputs))
 	model:add(nn.LogSoftMax())
 
+
 	print('the model looks like =>')
 	print(model)
 
@@ -52,10 +60,10 @@ function model()
 
 end
 --function prepareDataset()
+model = model()
 
-
-function train(model,trainDataset)
-
+function train(trainDataset)
+	model:training()
 	local time = sys.clock()
 
 	criterion = nn.ClassNLLCriterion():cuda()
@@ -89,8 +97,38 @@ function train(model,trainDataset)
 					
 		end
 	print ('epoch : ',epoch,'trainError : ',trainError/trainDataset:getNumBatches())
+	--torch.save('model')
+	--return model
 	end
 end
 
 print 'training'
-train(model(),trainDataset)
+train(trainDataset)
+ 
+function test(testDataset)
+	model:evaluate()
+	criterion = nn.ClassNLLCriterion():cuda()
+	--print 'check 0'
+	local time = sys.clock()
+	total = 0
+	correct = 0
+	
+	for batchIdx = 1,testDataset:getNumBatches() do
+
+		--xlua.progress(batchIdx,trainDataset:getNumBatches())
+		inputs , labels = testDataset:getBatch(batchIdx)
+		outputs = model:forward(inputs:cuda())
+		--loss = criterion:forward(outputs:cuda(),labels())
+		--testLoss = testLoss + loss
+		_, output = outputs:max(2)
+		output = output:cuda()
+		correct = correct + output:eq(labels:cuda()):sum()
+		total = total + output:size(1)	
+	end
+
+	print('test_accuracy : ',(correct/total)*100)
+
+end
+
+print 'testing'
+test(testDataset)
